@@ -199,7 +199,10 @@ class PrometheusMetrics:
 
         labels = self._labels(state)
         state_change = self._metric(
-            "state_change", self.prometheus_cli.Counter, "The number of state changes"
+            "state_change",
+            self.prometheus_cli.Counter,
+            "The number of state changes",
+            labels.keys(),
         )
         state_change.labels(**labels).inc()
 
@@ -207,6 +210,7 @@ class PrometheusMetrics:
             "entity_available",
             self.prometheus_cli.Gauge,
             "Entity is available (not in the unavailable or unknown state)",
+            self._labels(state).keys(),
         )
         entity_available.labels(**labels).set(float(state.state not in ignored_states))
 
@@ -214,6 +218,7 @@ class PrometheusMetrics:
             "last_updated_time_seconds",
             self.prometheus_cli.Gauge,
             "The last_updated timestamp",
+            self._labels(state).keys(),
         )
         last_updated_time_seconds.labels(**labels).set(state.last_updated.timestamp())
 
@@ -261,6 +266,7 @@ class PrometheusMetrics:
                 f"{state.domain}_attr_{key.lower()}",
                 self.prometheus_cli.Gauge,
                 f"{key} attribute of {state.domain} entity",
+                self._labels(state).keys(),
             )
 
             try:
@@ -269,11 +275,7 @@ class PrometheusMetrics:
             except (ValueError, TypeError):
                 pass
 
-    def _metric(self, metric, factory, documentation, extra_labels=None):
-        labels = ["entity", "friendly_name", "domain"]
-        if extra_labels is not None:
-            labels.extend(extra_labels)
-
+    def _metric(self, metric, factory, documentation, labels=None):
         try:
             return self._metrics[metric]
         except KeyError:
@@ -317,11 +319,19 @@ class PrometheusMetrics:
 
     @staticmethod
     def _labels(state):
-        return {
+        labels = {
             "entity": state.entity_id,
             "domain": state.domain,
             "friendly_name": state.attributes.get(ATTR_FRIENDLY_NAME),
         }
+
+        extra_labels = ["home_room"]
+
+        for key in extra_labels:
+            label_name = PrometheusMetrics._sanitize_metric_name(key)
+            labels[label_name] = state.attributes.get(key)
+
+        return labels
 
     def _battery(self, state):
         if (battery_level := state.attributes.get(ATTR_BATTERY_LEVEL)) is not None:
@@ -329,6 +339,7 @@ class PrometheusMetrics:
                 "battery_level_percent",
                 self.prometheus_cli.Gauge,
                 "Battery level as a percentage of its capacity",
+                self._labels(state).keys(),
             )
             try:
                 value = float(battery_level)
@@ -341,6 +352,7 @@ class PrometheusMetrics:
             "binary_sensor_state",
             self.prometheus_cli.Gauge,
             "State of the binary sensor (0/1)",
+            self._labels(state).keys(),
         )
         value = self.state_as_number(state)
         metric.labels(**self._labels(state)).set(value)
@@ -350,6 +362,7 @@ class PrometheusMetrics:
             "input_boolean_state",
             self.prometheus_cli.Gauge,
             "State of the input boolean (0/1)",
+            self._labels(state).keys(),
         )
         value = self.state_as_number(state)
         metric.labels(**self._labels(state)).set(value)
@@ -360,12 +373,14 @@ class PrometheusMetrics:
                 f"{domain}_state_{unit}",
                 self.prometheus_cli.Gauge,
                 f"State of the {title} measured in {unit}",
+                self._labels(state).keys(),
             )
         else:
             metric = self._metric(
                 f"{domain}_state",
                 self.prometheus_cli.Gauge,
                 f"State of the {title}",
+                self._labels(state).keys(),
             )
 
         with suppress(ValueError):
@@ -390,13 +405,17 @@ class PrometheusMetrics:
             "device_tracker_state",
             self.prometheus_cli.Gauge,
             "State of the device tracker (0/1)",
+            self._labels(state).keys(),
         )
         value = self.state_as_number(state)
         metric.labels(**self._labels(state)).set(value)
 
     def _handle_person(self, state):
         metric = self._metric(
-            "person_state", self.prometheus_cli.Gauge, "State of the person (0/1)"
+            "person_state",
+            self.prometheus_cli.Gauge,
+            "State of the person (0/1)",
+            self._labels(state).keys(),
         )
         value = self.state_as_number(state)
         metric.labels(**self._labels(state)).set(value)
@@ -406,7 +425,7 @@ class PrometheusMetrics:
             "cover_state",
             self.prometheus_cli.Gauge,
             "State of the cover (0/1)",
-            ["state"],
+            list(self._labels(state).keys()) + ["state"],
         )
 
         cover_states = [STATE_CLOSED, STATE_CLOSING, STATE_OPEN, STATE_OPENING]
@@ -421,6 +440,7 @@ class PrometheusMetrics:
                 "cover_position",
                 self.prometheus_cli.Gauge,
                 "Position of the cover (0-100)",
+                self._labels(state).keys(),
             )
             position_metric.labels(**self._labels(state)).set(float(position))
 
@@ -430,6 +450,7 @@ class PrometheusMetrics:
                 "cover_tilt_position",
                 self.prometheus_cli.Gauge,
                 "Tilt Position of the cover (0-100)",
+                self._labels(state).keys(),
             )
             tilt_position_metric.labels(**self._labels(state)).set(float(tilt_position))
 
@@ -438,6 +459,7 @@ class PrometheusMetrics:
             "light_brightness_percent",
             self.prometheus_cli.Gauge,
             "Light brightness percentage (0..100)",
+            self._labels(state).keys(),
         )
 
         try:
@@ -453,7 +475,10 @@ class PrometheusMetrics:
 
     def _handle_lock(self, state):
         metric = self._metric(
-            "lock_state", self.prometheus_cli.Gauge, "State of the lock (0/1)"
+            "lock_state",
+            self.prometheus_cli.Gauge,
+            "State of the lock (0/1)",
+            self._labels(state).keys(),
         )
         value = self.state_as_number(state)
         metric.labels(**self._labels(state)).set(value)
@@ -468,6 +493,7 @@ class PrometheusMetrics:
                 metric_name,
                 self.prometheus_cli.Gauge,
                 metric_description,
+                self._labels(state).keys(),
             )
             metric.labels(**self._labels(state)).set(temp)
 
@@ -502,7 +528,7 @@ class PrometheusMetrics:
                 "climate_action",
                 self.prometheus_cli.Gauge,
                 "HVAC action",
-                ["action"],
+                list(self._labels(state).keys()) + ["action"],
             )
             for action in HVACAction:
                 metric.labels(**dict(self._labels(state), action=action.value)).set(
@@ -516,7 +542,7 @@ class PrometheusMetrics:
                 "climate_mode",
                 self.prometheus_cli.Gauge,
                 "HVAC mode",
-                ["mode"],
+                list(self._labels(state).keys()) + ["mode"],
             )
             for mode in available_modes:
                 metric.labels(**dict(self._labels(state), mode=mode)).set(
@@ -530,6 +556,7 @@ class PrometheusMetrics:
                 "humidifier_target_humidity_percent",
                 self.prometheus_cli.Gauge,
                 "Target Relative Humidity",
+                self._labels(state).keys(),
             )
             metric.labels(**self._labels(state)).set(humidifier_target_humidity_percent)
 
@@ -537,6 +564,7 @@ class PrometheusMetrics:
             "humidifier_state",
             self.prometheus_cli.Gauge,
             "State of the humidifier (0/1)",
+            self._labels(state).keys(),
         )
         try:
             value = self.state_as_number(state)
@@ -551,7 +579,7 @@ class PrometheusMetrics:
                 "humidifier_mode",
                 self.prometheus_cli.Gauge,
                 "Humidifier Mode",
-                ["mode"],
+                list(self._labels(state).keys()) + ["mode"],
             )
             for mode in available_modes:
                 metric.labels(**dict(self._labels(state), mode=mode)).set(
@@ -571,7 +599,12 @@ class PrometheusMetrics:
             if unit:
                 documentation = f"Sensor data measured in {unit}"
 
-            _metric = self._metric(metric, self.prometheus_cli.Gauge, documentation)
+            _metric = self._metric(
+                metric,
+                self.prometheus_cli.Gauge,
+                documentation,
+                self._labels(state).keys(),
+            )
 
             try:
                 value = self.state_as_number(state)
@@ -647,7 +680,10 @@ class PrometheusMetrics:
 
     def _handle_switch(self, state):
         metric = self._metric(
-            "switch_state", self.prometheus_cli.Gauge, "State of the switch (0/1)"
+            "switch_state",
+            self.prometheus_cli.Gauge,
+            "State of the switch (0/1)",
+            self._labels(state).keys(),
         )
 
         try:
@@ -666,6 +702,7 @@ class PrometheusMetrics:
             "automation_triggered_count",
             self.prometheus_cli.Counter,
             "Count of times an automation has been triggered",
+            self._labels(state).keys(),
         )
 
         metric.labels(**self._labels(state)).inc()
@@ -675,6 +712,7 @@ class PrometheusMetrics:
             "counter_value",
             self.prometheus_cli.Gauge,
             "Value of counter entities",
+            self._labels(state).keys(),
         )
 
         metric.labels(**self._labels(state)).set(self.state_as_number(state))
@@ -684,6 +722,7 @@ class PrometheusMetrics:
             "update_state",
             self.prometheus_cli.Gauge,
             "Update state, indicating if an update is available (0/1)",
+            self._labels(state).keys(),
         )
         value = self.state_as_number(state)
         metric.labels(**self._labels(state)).set(value)
